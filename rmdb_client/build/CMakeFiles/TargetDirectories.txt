@@ -1,3 +1,0 @@
-/home/jinxiyang/rmdb/rmdb_client/build/CMakeFiles/rmdb_client.dir
-/home/jinxiyang/rmdb/rmdb_client/build/CMakeFiles/edit_cache.dir
-/home/jinxiyang/rmdb/rmdb_client/build/CMakeFiles/rebuild_cache.dir
