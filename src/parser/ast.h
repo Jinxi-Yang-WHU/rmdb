@@ -144,9 +144,18 @@ struct Col : public Expr {
 struct SetClause : public TreeNode {
     std::string col_name;
     std::shared_ptr<Value> val;
+    bool is_expr = false;
+    std::shared_ptr<Col> expr_col;
+    int arith_op;  // 存储 '+' 或 '-' 的 ASCII 码
+    std::shared_ptr<Value> expr_val;
 
+    // 原有构造函数：常量赋值
     SetClause(std::string col_name_, std::shared_ptr<Value> val_) :
-            col_name(std::move(col_name_)), val(std::move(val_)) {}
+            col_name(std::move(col_name_)), val(std::move(val_)), is_expr(false) {}
+
+    // 新增构造函数：表达式赋值（如 score = score + 5）
+    SetClause(std::string col_name_, std::shared_ptr<Col> expr_col_, int arith_op_, std::shared_ptr<Value> expr_val_) :
+            col_name(std::move(col_name_)), is_expr(true), expr_col(std::move(expr_col_)), arith_op(arith_op_), expr_val(std::move(expr_val_)) {}
 };
 
 struct BinaryExpr : public TreeNode {

@@ -97,7 +97,6 @@ class JoinPlan : public Plan
         std::vector<Condition> conds_;
         // future TODO: 后续可以支持的连接类型
         JoinType type;
-        
 };
 
 class ProjectionPlan : public Plan

@@ -85,7 +85,29 @@ void SmManager::drop_db(const std::string& db_name) {
  * @param {string&} db_name 数据库名称，与文件夹同名
  */
 void SmManager::open_db(const std::string& db_name) {
+    if (!is_dir(db_name)) {
+        throw DatabaseNotFoundError(db_name);
+    }
+    if (chdir(db_name.c_str()) < 0) {
+        throw UnixError();
+    }
     
+    // 读取 db.meta
+    std::ifstream ifs(DB_META_NAME);
+    ifs >> db_;
+    
+    // 打开所有表的数据文件
+    for (auto &entry : db_.tabs_) {
+        auto &tab_name = entry.first;
+        auto &tab = entry.second;
+        fhs_.emplace(tab_name, rm_manager_->open_file(tab_name));
+        
+        // 打开所有索引文件
+        for (auto &index : tab.indexes) {
+            auto index_name = get_ix_manager()->get_index_name(tab_name, index.cols);
+            ihs_.emplace(index_name, get_ix_manager()->open_index(index_name, index.cols));
+        }
+    }
 }
 
 /**
@@ -101,7 +123,20 @@ void SmManager::flush_meta() {
  * @description: 关闭数据库并把数据落盘
  */
 void SmManager::close_db() {
+    // 关闭所有索引
+    for (auto &entry : ihs_) {
+        get_ix_manager()->close_index(entry.second.get());
+    }
+    ihs_.clear();
     
+    // 关闭所有表文件
+    for (auto &entry : fhs_) {
+        rm_manager_->close_file(entry.second.get());
+    }
+    fhs_.clear();
+    
+    // 回到上级目录
+    chdir("..");
 }
 
 /**
@@ -188,7 +223,29 @@ void SmManager::create_table(const std::string& tab_name, const std::vector<ColD
  * @param {Context*} context
  */
 void SmManager::drop_table(const std::string& tab_name, Context* context) {
+    if (!db_.is_table(tab_name)) {
+        throw TableNotFoundError(tab_name);
+    }
+    auto &tab = db_.get_table(tab_name);
     
+    for (auto &index : tab.indexes) {
+        auto index_name = get_ix_manager()->get_index_name(tab_name, index.cols);
+        if (ihs_.find(index_name) != ihs_.end()) {
+            get_ix_manager()->close_index(ihs_.at(index_name).get());
+            ihs_.erase(index_name);
+        }
+        // 修正：destroy_index 需要两个参数，传入 index.cols（vector<ColMeta>）
+        get_ix_manager()->destroy_index(index_name, index.cols);
+    }
+    
+    if (fhs_.find(tab_name) != fhs_.end()) {
+        rm_manager_->close_file(fhs_.at(tab_name).get());
+        fhs_.erase(tab_name);
+    }
+    rm_manager_->destroy_file(tab_name);
+    
+    db_.tabs_.erase(tab_name);
+    flush_meta();
 }
 
 /**

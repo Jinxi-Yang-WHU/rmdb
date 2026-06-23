@@ -48,8 +48,78 @@ std::shared_ptr<Query> Analyze::do_analyze(std::shared_ptr<ast::TreeNode> parse)
         get_clause(x->conds, query->conds);
         check_clause(query->tables, query->conds);
     } else if (auto x = std::dynamic_pointer_cast<ast::UpdateStmt>(parse)) {
-        /** TODO: */
-
+        // 1. 记录表名并检查表是否存在
+        query->tables.push_back(x->tab_name);
+        if (!sm_manager_->db_.is_table(x->tab_name)) {
+            throw TableNotFoundError(x->tab_name);
+        }
+        
+        // 2. 解析 SET 子句
+        for (auto &sv_set_clause : x->set_clauses) {
+            SetClause set_clause;
+            set_clause.lhs = {.tab_name = x->tab_name, .col_name = sv_set_clause->col_name};
+            
+            auto &tab = sm_manager_->db_.get_table(x->tab_name);
+            if (!tab.is_col(sv_set_clause->col_name)) {
+                throw ColumnNotFoundError(sv_set_clause->col_name);
+            }
+            
+            auto col = tab.get_col(sv_set_clause->col_name);
+            
+            if (sv_set_clause->is_expr) {
+                // 表达式赋值：如 score = score + 5
+                set_clause.is_rhs_expr = true;
+                set_clause.rhs_col = {.tab_name = x->tab_name, .col_name = sv_set_clause->expr_col->col_name};
+                
+                if (sv_set_clause->arith_op == '+') {
+                    set_clause.arith_op = ARITH_ADD;
+                } else if (sv_set_clause->arith_op == '-') {
+                    set_clause.arith_op = ARITH_SUB;
+                } else {
+                    throw InternalError("Unexpected arithmetic operator in SET clause");
+                }
+                
+                // set_clause.rhs_expr_val = convert_sv_value(sv_set_clause->expr_val);
+                
+                // // 检查表达式引用的列是否存在
+                // if (!tab.is_col(sv_set_clause->expr_col->col_name)) {
+                //     throw ColumnNotFoundError(sv_set_clause->expr_col->col_name);
+                // }
+                // auto expr_col = tab.get_col(sv_set_clause->expr_col->col_name);
+                
+                // // 类型一致性检查
+                // if (expr_col->type != set_clause.rhs_expr_val.type) {
+                //     throw IncompatibleTypeError(coltype2str(expr_col->type), coltype2str(set_clause.rhs_expr_val.type));
+                // }
+                set_clause.rhs_expr_val = convert_sv_value(sv_set_clause->expr_val);
+                
+                // 检查表达式引用的列是否存在
+                if (!tab.is_col(sv_set_clause->expr_col->col_name)) {
+                    throw ColumnNotFoundError(sv_set_clause->expr_col->col_name);
+                }
+                auto expr_col = tab.get_col(sv_set_clause->expr_col->col_name);
+                // 统一调用 cast_to，支持 int/float 隐式转换
+                set_clause.rhs_expr_val.cast_to(expr_col->type);
+                
+                // 检查表达式列类型与目标列类型
+                if (col->type != expr_col->type) {
+                    throw IncompatibleTypeError(coltype2str(col->type), coltype2str(expr_col->type));
+                }
+            } else {
+                // 常量赋值
+                set_clause.rhs = convert_sv_value(sv_set_clause->val);
+                set_clause.rhs.cast_to(col->type);  // 统一调用
+                set_clause.rhs.init_raw(col->len);
+                if (col->type != set_clause.rhs.type) {
+                    throw IncompatibleTypeError(coltype2str(col->type), coltype2str(set_clause.rhs.type));
+                }
+            }
+            query->set_clauses.push_back(set_clause);
+        }
+        
+        // 3. 解析 WHERE 条件
+        get_clause(x->conds, query->conds);
+        check_clause({x->tab_name}, query->conds);
     } else if (auto x = std::dynamic_pointer_cast<ast::DeleteStmt>(parse)) {
         //处理where条件
         get_clause(x->conds, query->conds);
@@ -60,7 +130,7 @@ std::shared_ptr<Query> Analyze::do_analyze(std::shared_ptr<ast::TreeNode> parse)
             query->values.push_back(convert_sv_value(sv_val));
         }
     } else {
-        // do nothing
+        // do nothing (CreateTable, DropTable, etc.)
     }
     query->parse = std::move(parse);
     return query;
@@ -131,6 +201,9 @@ void Analyze::check_clause(const std::vector<std::string> &tab_names, std::vecto
         ColType lhs_type = lhs_col->type;
         ColType rhs_type;
         if (cond.is_rhs_val) {
+            // 统一调用 cast_to，支持 int/float 隐式转换
+            cond.rhs_val.cast_to(lhs_type);
+            
             cond.rhs_val.init_raw(lhs_col->len);
             rhs_type = cond.rhs_val.type;
         } else {

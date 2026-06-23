@@ -21,13 +21,24 @@ std::unordered_map<txn_id_t, Transaction *> TransactionManager::txn_map = {};
  * @param {LogManager*} log_manager 日志管理器指针
  */
 Transaction * TransactionManager::begin(Transaction* txn, LogManager* log_manager) {
-    // Todo:
-    // 1. 判断传入事务参数是否为空指针
-    // 2. 如果为空指针，创建新事务
-    // 3. 把开始事务加入到全局事务表中
-    // 4. 返回当前事务指针
+    // 1. 如果传入空指针，创建新事务
+    if (txn == nullptr) {
+        txn_id_t txn_id = next_txn_id_++;
+        timestamp_t start_ts = next_timestamp_++;
+        txn = new Transaction(txn_id);
+        txn->set_start_ts(start_ts);
+    }
     
-    return nullptr;
+    // 2. 设置事务状态为 GROWING（两阶段锁的增长阶段）
+    txn->set_state(TransactionState::GROWING);
+    
+    // 3. 加入全局事务表
+    std::unique_lock<std::mutex> lock(latch_);
+    txn_map[txn->get_transaction_id()] = txn;
+    lock.unlock();
+    
+    // 4. 返回事务指针
+    return txn;
 }
 
 /**
@@ -36,13 +47,31 @@ Transaction * TransactionManager::begin(Transaction* txn, LogManager* log_manage
  * @param {LogManager*} log_manager 日志管理器指针
  */
 void TransactionManager::commit(Transaction* txn, LogManager* log_manager) {
-    // Todo:
-    // 1. 如果存在未提交的写操作，提交所有的写操作
-    // 2. 释放所有锁
-    // 3. 释放事务相关资源，eg.锁集
-    // 4. 把事务日志刷入磁盘中
+    // 1. 释放所有锁
+    auto lock_set = txn->get_lock_set();
+    for (auto &lock_data_id : *lock_set) {
+        lock_manager_->unlock(txn, lock_data_id);
+    }
+    lock_set->clear();
+    
+    // 2. 清空写操作集（释放内存）
+    auto write_set = txn->get_write_set();
+    for (auto &write_record : *write_set) {
+        delete write_record;
+    }
+    write_set->clear();
+    
+    // 3. 清空事务相关资源
+    txn->get_index_latch_page_set()->clear();
+    txn->get_index_deleted_page_set()->clear();
+    
+    // 4. 把事务日志刷入磁盘
+    if (log_manager != nullptr) {
+        log_manager->flush_log_to_disk();
+    }
+    
     // 5. 更新事务状态
-
+    txn->set_state(TransactionState::COMMITTED);
 }
 
 /**
@@ -51,11 +80,47 @@ void TransactionManager::commit(Transaction* txn, LogManager* log_manager) {
  * @param {LogManager} *log_manager 日志管理器指针
  */
 void TransactionManager::abort(Transaction * txn, LogManager *log_manager) {
-    // Todo:
-    // 1. 回滚所有写操作
-    // 2. 释放所有锁
-    // 3. 清空事务相关资源，eg.锁集
-    // 4. 把事务日志刷入磁盘中
-    // 5. 更新事务状态
+    // 1. 回滚所有写操作（逆序遍历，先回滚后执行的操作）
+    auto write_set = txn->get_write_set();
+    for (auto it = write_set->rbegin(); it != write_set->rend(); ++it) {
+        auto &write_record = *it;
+        auto wtype = write_record->GetWriteType();
+        auto &tab_name = write_record->GetTableName();
+        auto &rid = write_record->GetRid();
+        
+        if (wtype == WType::INSERT_TUPLE) {
+            // 回滚插入：删除已插入的记录
+            auto fh = sm_manager_->fhs_.at(tab_name).get();
+            fh->delete_record(rid, nullptr);
+        } else if (wtype == WType::DELETE_TUPLE || wtype == WType::UPDATE_TUPLE) {
+            // 回滚删除/更新：恢复旧记录
+            auto fh = sm_manager_->fhs_.at(tab_name).get();
+            auto &record = write_record->GetRecord();
+            fh->update_record(rid, record.data, nullptr);
+        }
+    }
     
+    // 2. 释放所有锁
+    auto lock_set = txn->get_lock_set();
+    for (auto &lock_data_id : *lock_set) {
+        lock_manager_->unlock(txn, lock_data_id);
+    }
+    lock_set->clear();
+    
+    // 3. 清空事务相关资源
+    for (auto &write_record : *write_set) {
+        delete write_record;
+    }
+    write_set->clear();
+    
+    txn->get_index_latch_page_set()->clear();
+    txn->get_index_deleted_page_set()->clear();
+    
+    // 4. 把事务日志刷入磁盘
+    if (log_manager != nullptr) {
+        log_manager->flush_log_to_disk();
+    }
+    
+    // 5. 更新事务状态
+    txn->set_state(TransactionState::ABORTED);
 }

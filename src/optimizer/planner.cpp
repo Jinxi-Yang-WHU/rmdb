@@ -211,8 +211,8 @@ std::shared_ptr<Plan> Planner::make_one_rel(std::shared_ptr<Query> query)
                                                                     std::move(left_need_to_join_executors), 
                                                                     std::move(right_need_to_join_executors), 
                                                                     join_conds);
-                table_join_executors = std::make_shared<JoinPlan>(T_NestLoop, std::move(temp_join_executors), 
-                                                                    std::move(table_join_executors), 
+                table_join_executors = std::make_shared<JoinPlan>(T_NestLoop, std::move(table_join_executors), 
+                                                                    std::move(temp_join_executors), 
                                                                     std::vector<Condition>());
             } else if(left_need_to_join_executors != nullptr || right_need_to_join_executors != nullptr) {
                 if(isneedreverse) {
@@ -224,8 +224,8 @@ std::shared_ptr<Plan> Planner::make_one_rel(std::shared_ptr<Query> query)
                     left_need_to_join_executors = std::move(right_need_to_join_executors);
                 }
                 std::vector<Condition> join_conds{*it};
-                table_join_executors = std::make_shared<JoinPlan>(T_NestLoop, std::move(left_need_to_join_executors), 
-                                                                    std::move(table_join_executors), join_conds);
+                table_join_executors = std::make_shared<JoinPlan>(T_NestLoop, std::move(table_join_executors), 
+                                                                    std::move(left_need_to_join_executors), join_conds);
             } else {
                 push_conds(std::move(&(*it)), table_join_executors);
             }
@@ -239,8 +239,8 @@ std::shared_ptr<Plan> Planner::make_one_rel(std::shared_ptr<Query> query)
     //连接剩余表
     for (size_t i = 0; i < tables.size(); i++) {
         if(scantbl[i] == -1) {
-            table_join_executors = std::make_shared<JoinPlan>(T_NestLoop, std::move(table_scan_executors[i]), 
-                                                    std::move(table_join_executors), std::vector<Condition>());
+            table_join_executors = std::make_shared<JoinPlan>(T_NestLoop, std::move(table_join_executors), 
+                                                    std::move(table_scan_executors[i]), std::vector<Condition>());
         }
     }
 
