@@ -122,29 +122,26 @@ class SeqScanExecutor : public AbstractExecutor {
             
             // 2. 右操作数可能是常量（如 90），也可能是另一列（如 t2.id）
             if (cond.is_rhs_val) {
+                // 直接修改 cond.rhs_val（fed_conds_ 是成员变量，生命周期安全）
                 if (cond.rhs_val.raw == nullptr) {
-                    Value rhs_val = cond.rhs_val;
-                    rhs_val.init_raw(lhs_it->len);
-                    rhs_data = rhs_val.raw->data;
-                } else {
-                    rhs_data = cond.rhs_val.raw->data;
+                    cond.rhs_val.init_raw(lhs_it->len);
                 }
+                rhs_data = cond.rhs_val.raw->data;
             } else {
                 auto rhs_it = get_col(cols_, cond.rhs_col);
                 rhs_data = rec->data + rhs_it->offset;
             }
             
             // 3. 比较左右操作数
-            if (!compare_values(lhs_data, rhs_data, lhs_it->type, cond.op)) {
+            if (!compare_values(lhs_data, rhs_data, lhs_it->type, lhs_it->len, cond.op)) {
                 return false;  // 有一个条件不满足，整体为 false
             }
         }
         return true;  // 所有条件都满足
     }
     
-    bool compare_values(const char *lhs, const char *rhs, ColType type, CompOp op) {
-        int cmp = 0;  // -1: 小于, 0: 等于, 1: 大于
-        
+    bool compare_values(const char *lhs, const char *rhs, ColType type, int len, CompOp op) {
+        int cmp = 0;
         if (type == TYPE_INT) {
             int l = *reinterpret_cast<const int*>(lhs);
             int r = *reinterpret_cast<const int*>(rhs);
@@ -154,11 +151,14 @@ class SeqScanExecutor : public AbstractExecutor {
             float r = *reinterpret_cast<const float*>(rhs);
             cmp = (l < r) ? -1 : (l > r) ? 1 : 0;
         } else if (type == TYPE_STRING) {
-            // 定长字符串，由于 init_raw 用 \0 填充了多余字节，
-            // 所以直接用 strcmp 即可，遇到 \0 就会停止
-            cmp = strcmp(lhs, rhs);
+            // 使用 std::string 构造定长字符串，避免 strcmp 越界读取
+            std::string l(lhs, len);
+            std::string r(rhs, len);
+            // 去除末尾的 \0 填充，确保比较的是实际内容
+            l.resize(strlen(l.c_str()));
+            r.resize(strlen(r.c_str()));
+            cmp = l.compare(r);
         }
-        
         switch (op) {
             case OP_EQ: return cmp == 0;
             case OP_NE: return cmp != 0;

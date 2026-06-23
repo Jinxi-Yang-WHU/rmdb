@@ -140,31 +140,54 @@ class NestedLoopJoinExecutor : public AbstractExecutor {
     }
 
     bool eval_join_conds() {
-        // 如果没有连接条件，直接返回 true（笛卡尔积）
         for (auto &cond : fed_conds_) {
-            // 在拼接后的字段列表中查找左操作数字段
             auto lhs_it = get_col(cols_, cond.lhs_col);
             char *lhs_data = get_col_data(lhs_it->offset);
-            
             char *rhs_data = nullptr;
-            Value rhs_val;
             
             if (cond.is_rhs_val) {
-                // 右操作数是常量（如 t.id = 1）
-                rhs_val = cond.rhs_val;
-                rhs_val.init_raw(lhs_it->len);
-                rhs_data = rhs_val.raw->data;
+                if (cond.rhs_val.raw == nullptr) {
+                    cond.rhs_val.init_raw(lhs_it->len);
+                }
+                rhs_data = cond.rhs_val.raw->data;
             } else {
-                // 右操作数是列引用（如 t.id = d.id）
                 auto rhs_it = get_col(cols_, cond.rhs_col);
                 rhs_data = get_col_data(rhs_it->offset);
             }
             
-            if (!compare_values(lhs_data, rhs_data, lhs_it->type, cond.op)) {
+            if (!compare_values(lhs_data, rhs_data, lhs_it->type, lhs_it->len, cond.op)) {
                 return false;
             }
         }
         return true;
+    }
+
+    bool compare_values(const char *lhs, const char *rhs, ColType type, int len, CompOp op) {
+        int cmp = 0;
+        if (type == TYPE_INT) {
+            int l = *reinterpret_cast<const int*>(lhs);
+            int r = *reinterpret_cast<const int*>(rhs);
+            cmp = (l < r) ? -1 : (l > r) ? 1 : 0;
+        } else if (type == TYPE_FLOAT) {
+            float l = *reinterpret_cast<const float*>(lhs);
+            float r = *reinterpret_cast<const float*>(rhs);
+            cmp = (l < r) ? -1 : (l > r) ? 1 : 0;
+        } else if (type == TYPE_STRING) {
+            std::string l(lhs, len);
+            std::string r(rhs, len);
+            l.resize(strlen(l.c_str()));
+            r.resize(strlen(r.c_str()));
+            cmp = l.compare(r);
+        }
+        switch (op) {
+            case OP_EQ: return cmp == 0;
+            case OP_NE: return cmp != 0;
+            case OP_LT: return cmp < 0;
+            case OP_GT: return cmp > 0;
+            case OP_LE: return cmp <= 0;
+            case OP_GE: return cmp >= 0;
+        }
+        return false;
     }
 
     // 根据全局 offset 判断该字段属于左表还是右表
@@ -176,29 +199,5 @@ class NestedLoopJoinExecutor : public AbstractExecutor {
             // 右表字段，从 right_rec_ 读取，offset 需减去左表长度
             return right_rec_->data + (offset - (int)left_->tupleLen());
         }
-    }
-
-    bool compare_values(const char *lhs, const char *rhs, ColType type, CompOp op) {
-        int cmp = 0;
-        if (type == TYPE_INT) {
-            int l = *reinterpret_cast<const int*>(lhs);
-            int r = *reinterpret_cast<const int*>(rhs);
-            cmp = (l < r) ? -1 : (l > r) ? 1 : 0;
-        } else if (type == TYPE_FLOAT) {
-            float l = *reinterpret_cast<const float*>(lhs);
-            float r = *reinterpret_cast<const float*>(rhs);
-            cmp = (l < r) ? -1 : (l > r) ? 1 : 0;
-        } else if (type == TYPE_STRING) {
-            cmp = strcmp(lhs, rhs);
-        }
-        switch (op) {
-            case OP_EQ: return cmp == 0;
-            case OP_NE: return cmp != 0;
-            case OP_LT: return cmp < 0;
-            case OP_GT: return cmp > 0;
-            case OP_LE: return cmp <= 0;
-            case OP_GE: return cmp >= 0;
-        }
-        return false;
     }
 };
