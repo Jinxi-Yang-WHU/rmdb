@@ -12,6 +12,7 @@ See the Mulan PSL v2 for more details. */
 
 #include <cassert>
 #include <climits>  
+#include <cctype> 
 #include <cstring>
 #include <memory>
 #include <string>
@@ -28,6 +29,36 @@ struct TabCol {
         return std::make_pair(x.tab_name, x.col_name) < std::make_pair(y.tab_name, y.col_name);
     }
 };
+
+inline bool is_valid_datetime(const std::string& s) {
+    if (s.size() != 19) return false;
+    if (s[4] != '-' || s[7] != '-' || s[10] != ' ' || s[13] != ':' || s[16] != ':') return false;
+    
+    for (int i = 0; i < 19; ++i) {
+        if (i == 4 || i == 7 || i == 10 || i == 13 || i == 16) continue;
+        if (!isdigit(s[i])) return false;
+    }
+    
+    int year = std::stoi(s.substr(0, 4));
+    int month = std::stoi(s.substr(5, 2));
+    int day = std::stoi(s.substr(8, 2));
+    int hour = std::stoi(s.substr(11, 2));
+    int minute = std::stoi(s.substr(14, 2));
+    int second = std::stoi(s.substr(17, 2));
+    
+    if (year < 1000 || year > 9999) return false;
+    if (month < 1 || month > 12) return false;
+    if (hour < 0 || hour > 23) return false;
+    if (minute < 0 || minute > 59) return false;
+    if (second < 0 || second > 59) return false;
+    
+    int days_in_month[] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    bool is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+    if (is_leap) days_in_month[2] = 29;
+    if (day < 1 || day > days_in_month[month]) return false;
+    
+    return true;
+}
 
 struct Value {
     ColType type;
@@ -61,7 +92,15 @@ struct Value {
 
     void cast_to(ColType target_type) {
         if (type == target_type) return;
-        if (target_type == TYPE_BIGINT && type == TYPE_INT) {
+        
+        if (target_type == TYPE_DATETIME && type == TYPE_STRING) {
+            if (!is_valid_datetime(str_val)) {
+                throw IncompatibleTypeError(coltype2str(target_type), coltype2str(type));
+            }
+            type = TYPE_DATETIME;
+        } else if (target_type == TYPE_STRING && type == TYPE_DATETIME) {
+            type = TYPE_STRING;
+        } else if (target_type == TYPE_BIGINT && type == TYPE_INT) {
             set_bigint(static_cast<int64_t>(int_val));
         } else if (target_type == TYPE_INT && type == TYPE_BIGINT) {
             if (bigint_val > INT_MAX || bigint_val < INT_MIN) {
@@ -98,6 +137,12 @@ struct Value {
             } else if (type == TYPE_FLOAT) {
                 assert(len == sizeof(float));
                 *(float *)(raw->data) = float_val;
+            } else if (type == TYPE_DATETIME) {
+                if (len < (int)str_val.size()) {
+                    throw StringOverflowError();
+                }
+                memset(raw->data, 0, len);
+                memcpy(raw->data, str_val.c_str(), str_val.size());
             } else if (type == TYPE_STRING) {
                 if (len < (int)str_val.size()) {
                     throw StringOverflowError();
@@ -123,7 +168,17 @@ struct Value {
             }
             memset(raw->data, 0, len);
             memcpy(raw->data, str_val.c_str(), str_val.size());
-        } else if (type == TYPE_BIGINT) {
+        } 
+        // ==================== 新增以下 6 行 ====================
+        else if (type == TYPE_DATETIME) {
+            if (len < (int)str_val.size()) {
+                throw StringOverflowError();
+            }
+            memset(raw->data, 0, len);
+            memcpy(raw->data, str_val.c_str(), str_val.size());
+        } 
+        // =====================================================
+        else if (type == TYPE_BIGINT) {
             assert(len == sizeof(int64_t));
             *(int64_t *)(raw->data) = bigint_val;
         }

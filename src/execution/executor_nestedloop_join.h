@@ -176,7 +176,7 @@ class NestedLoopJoinExecutor : public AbstractExecutor {
             float l = *reinterpret_cast<const float*>(lhs);
             float r = *reinterpret_cast<const float*>(rhs);
             cmp = (l < r) ? -1 : (l > r) ? 1 : 0;
-        } else if (type == TYPE_STRING) {
+        } else if (type == TYPE_STRING || type == TYPE_DATETIME) {
             std::string l(lhs, len);
             std::string r(rhs, len);
             l.resize(strlen(l.c_str()));

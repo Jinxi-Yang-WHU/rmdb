@@ -31,6 +31,7 @@ WHERE UPDATE SET SELECT INT CHAR FLOAT INDEX AND JOIN EXIT HELP TXN_BEGIN TXN_CO
 %token <sv_int> VALUE_INT
 %token <sv_float> VALUE_FLOAT
 %token BIGINT
+%token DATETIME
 %token <sv_bigint> VALUE_BIGINT
 
 // specify types for non-terminal symbol
@@ -189,6 +190,10 @@ type:
     |   BIGINT
     {
         $$ = std::make_shared<TypeLen>(SV_TYPE_BIGINT, sizeof(int64_t));
+    }
+    |   DATETIME
+    {
+        $$ = std::make_shared<TypeLen>(SV_TYPE_DATETIME, 20);
     }
     |   CHAR '(' VALUE_INT ')'
     {

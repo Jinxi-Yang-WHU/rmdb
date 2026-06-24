@@ -12,7 +12,7 @@
 
 %{
 #include "ast.h"
-#include "yacc.tab.h"
+#include "yacc.tab.hpp"
 #include "errors.h"
 #include <iostream>
 #include <memory>
@@ -81,6 +81,7 @@ single_op ";"|"("|")"|","|"*"|"="|">"|"<"|"."|"+"|"-"
 "SELECT" { return SELECT; }
 "INT" { return INT; }
 "BIGINT" { return BIGINT; }
+"DATETIME" { return DATETIME; }
 "CHAR" { return CHAR; }
 "FLOAT" { return FLOAT; }
 "INDEX" { return INDEX; }
