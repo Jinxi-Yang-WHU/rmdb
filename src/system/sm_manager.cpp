@@ -95,7 +95,7 @@ void SmManager::open_db(const std::string& db_name) {
     // 读取 db.meta
     std::ifstream ifs(DB_META_NAME);
     ifs >> db_;
-    
+    // std::cerr << "[DEBUG open_db] loaded db_=\n" << db_ << "\n";    
     // 打开所有表的数据文件
     for (auto &entry : db_.tabs_) {
         auto &tab_name = entry.first;
@@ -213,8 +213,10 @@ void SmManager::create_table(const std::string& tab_name, const std::vector<ColD
     db_.tabs_[tab_name] = tab;
     // fhs_[tab_name] = rm_manager_->open_file(tab_name);
     fhs_.emplace(tab_name, rm_manager_->open_file(tab_name));
+    // std::cerr << "[DEBUG create_table BEFORE flush] db_=\n" << db_ << "\n";
 
     flush_meta();
+    // std::cerr << "[DEBUG create_table AFTER flush] done\n";
 }
 
 /**

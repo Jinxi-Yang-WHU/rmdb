@@ -11,6 +11,7 @@ See the Mulan PSL v2 for more details. */
 #pragma once
 
 #include <cassert>
+#include <climits>  
 #include <cstring>
 #include <memory>
 #include <string>
@@ -29,14 +30,14 @@ struct TabCol {
 };
 
 struct Value {
-    ColType type;  // type of value
+    ColType type;
     union {
-        int int_val;      // int value
-        float float_val;  // float value
+        int int_val;
+        float float_val;
+        int64_t bigint_val;
     };
-    std::string str_val;  // string value
-
-    std::shared_ptr<RmRecord> raw;  // raw record buffer
+    std::string str_val;
+    std::shared_ptr<RmRecord> raw;
 
     void set_int(int int_val_) {
         type = TYPE_INT;
@@ -53,9 +54,21 @@ struct Value {
         str_val = std::move(str_val_);
     }
 
+    void set_bigint(int64_t bigint_val_) {
+        type = TYPE_BIGINT;
+        bigint_val = bigint_val_;
+    }
+
     void cast_to(ColType target_type) {
         if (type == target_type) return;
-        if (target_type == TYPE_FLOAT && type == TYPE_INT) {
+        if (target_type == TYPE_BIGINT && type == TYPE_INT) {
+            set_bigint(static_cast<int64_t>(int_val));
+        } else if (target_type == TYPE_INT && type == TYPE_BIGINT) {
+            if (bigint_val > INT_MAX || bigint_val < INT_MIN) {
+                throw IncompatibleTypeError(coltype2str(target_type), coltype2str(type));
+            }
+            set_int(static_cast<int>(bigint_val));
+        } else if (target_type == TYPE_FLOAT && type == TYPE_INT) {
             int int_val = this->int_val;
             set_float(static_cast<float>(int_val));
         } else if (target_type == TYPE_INT && type == TYPE_FLOAT) {
@@ -64,6 +77,14 @@ struct Value {
                 throw IncompatibleTypeError(coltype2str(target_type), coltype2str(type));
             }
             set_int(static_cast<int>(float_val));
+        } else if (target_type == TYPE_FLOAT && type == TYPE_BIGINT) {
+            set_float(static_cast<float>(bigint_val));
+        } else if (target_type == TYPE_BIGINT && type == TYPE_FLOAT) {
+            float f = float_val;
+            if (f > LLONG_MAX || f < LLONG_MIN || f != static_cast<int64_t>(f)) {
+                throw IncompatibleTypeError(coltype2str(target_type), coltype2str(type));
+            }
+            set_bigint(static_cast<int64_t>(f));
         } else {
             throw IncompatibleTypeError(coltype2str(target_type), coltype2str(type));
         }
@@ -71,7 +92,6 @@ struct Value {
 
     void init_raw(int len) {
         if (raw != nullptr) {
-            // 已初始化过：重新填充数据（支持类型转换后再次调用）
             if (type == TYPE_INT) {
                 assert(len == sizeof(int));
                 *(int *)(raw->data) = int_val;
@@ -84,10 +104,12 @@ struct Value {
                 }
                 memset(raw->data, 0, len);
                 memcpy(raw->data, str_val.c_str(), str_val.size());
+            } else if (type == TYPE_BIGINT) {
+                assert(len == sizeof(int64_t));
+                *(int64_t *)(raw->data) = bigint_val;
             }
             return;
         }
-        // 首次初始化
         raw = std::make_shared<RmRecord>(len);
         if (type == TYPE_INT) {
             assert(len == sizeof(int));
@@ -101,6 +123,9 @@ struct Value {
             }
             memset(raw->data, 0, len);
             memcpy(raw->data, str_val.c_str(), str_val.size());
+        } else if (type == TYPE_BIGINT) {
+            assert(len == sizeof(int64_t));
+            *(int64_t *)(raw->data) = bigint_val;
         }
     }
 };

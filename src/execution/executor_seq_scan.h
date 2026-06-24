@@ -146,6 +146,10 @@ class SeqScanExecutor : public AbstractExecutor {
             int l = *reinterpret_cast<const int*>(lhs);
             int r = *reinterpret_cast<const int*>(rhs);
             cmp = (l < r) ? -1 : (l > r) ? 1 : 0;
+        } else if (type == TYPE_BIGINT) {
+            int64_t l = *reinterpret_cast<const int64_t*>(lhs);
+            int64_t r = *reinterpret_cast<const int64_t*>(rhs);
+            cmp = (l < r) ? -1 : (l > r) ? 1 : 0;
         } else if (type == TYPE_FLOAT) {
             float l = *reinterpret_cast<const float*>(lhs);
             float r = *reinterpret_cast<const float*>(rhs);

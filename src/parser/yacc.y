@@ -30,6 +30,8 @@ WHERE UPDATE SET SELECT INT CHAR FLOAT INDEX AND JOIN EXIT HELP TXN_BEGIN TXN_CO
 %token <sv_str> IDENTIFIER VALUE_STRING
 %token <sv_int> VALUE_INT
 %token <sv_float> VALUE_FLOAT
+%token BIGINT
+%token <sv_bigint> VALUE_BIGINT
 
 // specify types for non-terminal symbol
 %type <sv_node> stmt dbStmt ddl dml txnStmt
@@ -184,6 +186,10 @@ type:
     {
         $$ = std::make_shared<TypeLen>(SV_TYPE_INT, sizeof(int));
     }
+    |   BIGINT
+    {
+        $$ = std::make_shared<TypeLen>(SV_TYPE_BIGINT, sizeof(int64_t));
+    }
     |   CHAR '(' VALUE_INT ')'
     {
         $$ = std::make_shared<TypeLen>(SV_TYPE_STRING, $3);
@@ -209,6 +215,10 @@ value:
         VALUE_INT
     {
         $$ = std::make_shared<IntLit>($1);
+    }
+    |   VALUE_BIGINT
+    {
+        $$ = std::make_shared<BigIntLit>($1);
     }
     |   VALUE_FLOAT
     {

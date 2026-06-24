@@ -165,6 +165,8 @@ void QlManager::select_from(std::unique_ptr<AbstractExecutor> executorTreeRoot, 
                 char buf[64];
                 snprintf(buf, sizeof(buf), "%.6f", *(float *)rec_buf);
                 col_str = buf;
+            } else if (col.type == TYPE_BIGINT) {
+                col_str = std::to_string(*(int64_t *)rec_buf);
             } else if (col.type == TYPE_STRING) {
                 col_str = std::string((char *)rec_buf, col.len);
                 col_str.resize(strlen(col_str.c_str()));

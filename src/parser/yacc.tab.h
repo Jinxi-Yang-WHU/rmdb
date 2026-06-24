@@ -35,8 +35,8 @@
    especially those whose name start with YY_ or yy_.  They are
    private implementation details that can be changed or removed.  */
 
-#ifndef YY_YY_USERS_SXY_DOCUMENTS_PROJECTS_RUCBASE_SRC_PARSER_YACC_TAB_H_INCLUDED
-# define YY_YY_USERS_SXY_DOCUMENTS_PROJECTS_RUCBASE_SRC_PARSER_YACC_TAB_H_INCLUDED
+#ifndef YY_YY_YACC_TAB_H_INCLUDED
+# define YY_YY_YACC_TAB_H_INCLUDED
 /* Debug traces.  */
 #ifndef YYDEBUG
 # define YYDEBUG 0
@@ -92,7 +92,9 @@ extern int yydebug;
     IDENTIFIER = 293,              /* IDENTIFIER  */
     VALUE_STRING = 294,            /* VALUE_STRING  */
     VALUE_INT = 295,               /* VALUE_INT  */
-    VALUE_FLOAT = 296              /* VALUE_FLOAT  */
+    VALUE_FLOAT = 296,             /* VALUE_FLOAT  */
+    BIGINT = 297,                  /* BIGINT  */
+    VALUE_BIGINT = 298             /* VALUE_BIGINT  */
   };
   typedef enum yytokentype yytoken_kind_t;
 #endif
@@ -119,4 +121,4 @@ struct YYLTYPE
 int yyparse (void);
 
 
-#endif /* !YY_YY_USERS_SXY_DOCUMENTS_PROJECTS_RUCBASE_SRC_PARSER_YACC_TAB_H_INCLUDED  */
+#endif /* !YY_YY_YACC_TAB_H_INCLUDED  */

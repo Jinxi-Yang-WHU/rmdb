@@ -114,7 +114,7 @@ void *client_handler(void *sock_fd) {
         memset(data_send, '\0', BUFFER_LENGTH);
         offset = 0;
 
-        // 开启事务，初始化系统所需的上下文信息（包括事务对象指针、锁管理器指针、日志管理器指针、存放结果的buffer、记录结果长度的变量）
+        // 开启事务，初始化系统所需的上下文信息
         Context *context = new Context(lock_manager.get(), log_manager.get(), nullptr, data_send, &offset);
         SetTransaction(&txn_id, context);
 
@@ -122,62 +122,90 @@ void *client_handler(void *sock_fd) {
         bool finish_analyze = false;
         pthread_mutex_lock(buffer_mutex);
         YY_BUFFER_STATE buf = yy_scan_string(data_recv);
-        if (yyparse() == 0) {
-            if (ast::parse_tree != nullptr) {
-                try {
-                    // analyze and rewrite
-                    std::shared_ptr<Query> query = analyze->do_analyze(ast::parse_tree);
-                    yy_delete_buffer(buf);
-                    finish_analyze = true;
-                    pthread_mutex_unlock(buffer_mutex);
-                    // 优化器
-                    std::shared_ptr<Plan> plan = optimizer->plan_query(query, context);
-                    // portal
-                    std::shared_ptr<PortalStmt> portalStmt = portal->start(plan, context);
-                    portal->run(portalStmt, ql_manager.get(), &txn_id, context);
-                    portal->drop();
-                } catch (TransactionAbortException &e) {
-                    // 事务需要回滚，需要把abort信息返回给客户端并写入output.txt文件中
-                    std::string str = "abort\n";
-                    memcpy(data_send, str.c_str(), str.length());
-                    data_send[str.length()] = '\0';
-                    offset = str.length();
+        
+        try {
+            if (yyparse() == 0) {
+                if (ast::parse_tree != nullptr) {
+                    try {
+                        // analyze and rewrite
+                        std::shared_ptr<Query> query = analyze->do_analyze(ast::parse_tree);
+                        yy_delete_buffer(buf);
+                        finish_analyze = true;
+                        pthread_mutex_unlock(buffer_mutex);
+                        // 优化器
+                        std::shared_ptr<Plan> plan = optimizer->plan_query(query, context);
+                        // portal
+                        std::shared_ptr<PortalStmt> portalStmt = portal->start(plan, context);
+                        portal->run(portalStmt, ql_manager.get(), &txn_id, context);
+                        portal->drop();
+                    } catch (TransactionAbortException &e) {
+                        // 事务需要回滚，需要把abort信息返回给客户端并写入output.txt文件中
+                        std::string str = "abort\n";
+                        memcpy(data_send, str.c_str(), str.length());
+                        data_send[str.length()] = '\0';
+                        offset = str.length();
 
-                    // 回滚事务
-                    txn_manager->abort(context->txn_, log_manager.get());
-                    std::cout << e.GetInfo() << std::endl;
+                        // 回滚事务
+                        txn_manager->abort(context->txn_, log_manager.get());
+                        std::cout << e.GetInfo() << std::endl;
 
-                    std::fstream outfile;
-                    outfile.open("output.txt", std::ios::out | std::ios::app);
-                    outfile << str;
-                    outfile.close();
-                } catch (RMDBError &e) {
-                    // 遇到异常，需要打印failure到output.txt文件中，并发异常信息返回给客户端
-                    std::cerr << e.what() << std::endl;
+                        std::fstream outfile;
+                        outfile.open("output.txt", std::ios::out | std::ios::app);
+                        outfile << str;
+                        outfile.close();
+                    } catch (RMDBError &e) {
+                        // 遇到异常，需要打印failure到output.txt文件中，并发异常信息返回给客户端
+                        std::cerr << e.what() << std::endl;
 
-                    memcpy(data_send, e.what(), e.get_msg_len());
-                    data_send[e.get_msg_len()] = '\n';
-                    data_send[e.get_msg_len() + 1] = '\0';
-                    offset = e.get_msg_len() + 1;
+                        memcpy(data_send, e.what(), e.get_msg_len());
+                        data_send[e.get_msg_len()] = '\n';
+                        data_send[e.get_msg_len() + 1] = '\0';
+                        offset = e.get_msg_len() + 1;
 
-                    // 将报错信息写入output.txt
-                    std::fstream outfile;
-                    outfile.open("output.txt",std::ios::out | std::ios::app);
-                    outfile << "failure\n";
-                    outfile.close();
+                        // 将报错信息写入output.txt
+                        std::fstream outfile;
+                        outfile.open("output.txt",std::ios::out | std::ios::app);
+                        outfile << "failure\n";
+                        outfile.close();
+                    }
                 }
+            } else {
+                // yyparse 返回非0（语法错误）
+                std::string str = "failure\n";
+                memcpy(data_send, str.c_str(), str.length());
+                data_send[str.length()] = '\0';
+                offset = str.length();
+                
+                std::fstream outfile;
+                outfile.open("output.txt", std::ios::out | std::ios::app);
+                outfile << str;
+                outfile.close();
             }
+        } catch (RMDBError &e) {
+            // yyparse 或 do_analyze 阶段抛出的异常（如词法错误、整数溢出等）
+            std::cerr << e.what() << std::endl;
+            
+            memcpy(data_send, e.what(), e.get_msg_len());
+            data_send[e.get_msg_len()] = '\n';
+            data_send[e.get_msg_len() + 1] = '\0';
+            offset = e.get_msg_len() + 1;
+            
+            std::fstream outfile;
+            outfile.open("output.txt", std::ios::out | std::ios::app);
+            outfile << "failure\n";
+            outfile.close();
         }
+        
         if(finish_analyze == false) {
             yy_delete_buffer(buf);
             pthread_mutex_unlock(buffer_mutex);
         }
-        // future TODO: 格式化 sql_handler.result, 传给客户端
+        
         // send result with fixed format, use protobuf in the future
         if (write(fd, data_send, offset + 1) == -1) {
             break;
         }
-        // 如果是单挑语句，需要按照一个完整的事务来执行，所以执行完当前语句后，自动提交事务
+        // 如果是单条语句，需要按照一个完整的事务来执行，所以执行完当前语句后，自动提交事务
         if(context->txn_->get_txn_mode() == false)
         {
             txn_manager->commit(context->txn_, context->log_mgr_);

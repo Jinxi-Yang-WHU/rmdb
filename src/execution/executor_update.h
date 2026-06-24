@@ -58,6 +58,12 @@ class UpdateExecutor : public AbstractExecutor {
                         int result = (set_clause.arith_op == ARITH_ADD) ? (rhs_val + const_val)
                                                                       : (rhs_val - const_val);
                         *(int *)lhs_ptr = result;
+                    } else if (lhs_col->type == TYPE_BIGINT) {
+                        int64_t rhs_val = *(int64_t *)rhs_ptr;
+                        int64_t const_val = set_clause.rhs_expr_val.bigint_val;
+                        int64_t result = (set_clause.arith_op == ARITH_ADD) ? (rhs_val + const_val)
+                                                                        : (rhs_val - const_val);
+                        *(int64_t *)lhs_ptr = result;
                     } else if (lhs_col->type == TYPE_FLOAT) {
                         float rhs_val = *(float *)rhs_ptr;
                         float const_val = set_clause.rhs_expr_val.float_val;

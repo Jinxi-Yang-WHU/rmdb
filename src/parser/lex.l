@@ -13,7 +13,12 @@
 %{
 #include "ast.h"
 #include "yacc.tab.h"
+#include "errors.h"
 #include <iostream>
+#include <memory>
+#include <cerrno>
+#include <cstdlib>
+#include <climits>
 
 // automatically update location
 #define YY_USER_ACTION \
@@ -75,6 +80,7 @@ single_op ";"|"("|")"|","|"*"|"="|">"|"<"|"."|"+"|"-"
 "SET" { return SET; }
 "SELECT" { return SELECT; }
 "INT" { return INT; }
+"BIGINT" { return BIGINT; }
 "CHAR" { return CHAR; }
 "FLOAT" { return FLOAT; }
 "INDEX" { return INDEX; }
@@ -97,8 +103,18 @@ single_op ";"|"("|")"|","|"*"|"="|">"|"<"|"."|"+"|"-"
 }
     /* literals */
 {value_int} {
-    yylval->sv_int = atoi(yytext);
-    return VALUE_INT;
+    errno = 0;
+    long long val = strtoll(yytext, nullptr, 10);
+    if (errno == ERANGE) {
+        throw InternalError("Integer value out of range");
+    }
+    if (val >= INT_MIN && val <= INT_MAX) {
+        yylval->sv_int = static_cast<int>(val);
+        return VALUE_INT;
+    } else {
+        yylval->sv_bigint = val;
+        return VALUE_BIGINT;
+    }
 }
 {value_float} {
     yylval->sv_float = atof(yytext);

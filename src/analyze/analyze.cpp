@@ -125,9 +125,15 @@ std::shared_ptr<Query> Analyze::do_analyze(std::shared_ptr<ast::TreeNode> parse)
         get_clause(x->conds, query->conds);
         check_clause({x->tab_name}, query->conds);        
     } else if (auto x = std::dynamic_pointer_cast<ast::InsertStmt>(parse)) {
-        // 处理insert 的values值
-        for (auto &sv_val : x->vals) {
-            query->values.push_back(convert_sv_value(sv_val));
+        auto &tab = sm_manager_->db_.get_table(x->tab_name);
+        if (x->vals.size() != tab.cols.size()) {
+            throw InvalidValueCountError();
+        }
+        for (size_t i = 0; i < x->vals.size(); i++) {
+            Value val = convert_sv_value(x->vals[i]);
+            val.cast_to(tab.cols[i].type);
+            val.init_raw(tab.cols[i].len);
+            query->values.push_back(val);
         }
     } else {
         // do nothing (CreateTable, DropTable, etc.)
@@ -222,6 +228,8 @@ Value Analyze::convert_sv_value(const std::shared_ptr<ast::Value> &sv_val) {
     Value val;
     if (auto int_lit = std::dynamic_pointer_cast<ast::IntLit>(sv_val)) {
         val.set_int(int_lit->val);
+    } else if (auto bigint_lit = std::dynamic_pointer_cast<ast::BigIntLit>(sv_val)) {
+        val.set_bigint(bigint_lit->val);
     } else if (auto float_lit = std::dynamic_pointer_cast<ast::FloatLit>(sv_val)) {
         val.set_float(float_lit->val);
     } else if (auto str_lit = std::dynamic_pointer_cast<ast::StringLit>(sv_val)) {
