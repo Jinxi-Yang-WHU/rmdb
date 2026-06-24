@@ -24,21 +24,47 @@ std::shared_ptr<Query> Analyze::do_analyze(std::shared_ptr<ast::TreeNode> parse)
         query->tables = std::move(x->tabs);
         /** TODO: 检查表是否存在 */
 
-        // 处理target list，再target list中添加上表名，例如 a.id
-        for (auto &sv_sel_col : x->cols) {
-            TabCol sel_col = {.tab_name = sv_sel_col->tab_name, .col_name = sv_sel_col->col_name};
-            query->cols.push_back(sel_col);
-        }
-        
+        // 处理target list
         std::vector<ColMeta> all_cols;
         get_all_cols(query->tables, all_cols);
+        for (auto &sv_sel_col : x->cols) {
+            if (auto col = std::dynamic_pointer_cast<ast::Col>(sv_sel_col)) {
+                TabCol sel_col = {.tab_name = col->tab_name, .col_name = col->col_name};
+                query->cols.push_back(sel_col);
+            } else if (auto agg = std::dynamic_pointer_cast<ast::AggregateExpr>(sv_sel_col)) {
+                query->has_aggregate = true;
+                AggregateInfo agg_info;
+                agg_info.agg_type = agg->agg_type;
+                agg_info.alias = agg->alias;
+                if (agg->agg_type == AggregateType::AGG_COUNT_STAR) {
+                    agg_info.col = TabCol{"", ""};
+                    agg_info.out_type = TYPE_INT;
+                } else {
+                    TabCol col = {.tab_name = agg->col->tab_name, .col_name = agg->col->col_name};
+                    agg_info.col = check_column(all_cols, col);
+                    auto col_meta = sm_manager_->db_.get_table(agg_info.col.tab_name).get_col(agg_info.col.col_name);
+                    if (agg->agg_type == AggregateType::AGG_SUM) {
+                        agg_info.out_type = col_meta->type == TYPE_FLOAT ? TYPE_FLOAT : TYPE_BIGINT;
+                    } else if (agg->agg_type == AggregateType::AGG_MAX || agg->agg_type == AggregateType::AGG_MIN) {
+                        agg_info.out_type = col_meta->type;
+                    } else if (agg->agg_type == AggregateType::AGG_COUNT) {
+                        agg_info.out_type = TYPE_INT;
+                    }
+                }
+                // 聚合结果列加入投影列
+                TabCol out_col = {.tab_name = agg_info.col.tab_name, .col_name = agg_info.alias.empty() ? get_default_agg_name(agg_info.agg_type) : agg_info.alias};
+                query->cols.push_back(out_col);
+                query->aggregates.push_back(agg_info);
+            }
+        }
+        
         if (query->cols.empty()) {
             // select all columns
             for (auto &col : all_cols) {
                 TabCol sel_col = {.tab_name = col.tab_name, .col_name = col.name};
                 query->cols.push_back(sel_col);
             }
-        } else {
+        } else if (!query->has_aggregate) {
             // infer table name from column name
             for (auto &sel_col : query->cols) {
                 sel_col = check_column(all_cols, sel_col);  // 列元数据校验

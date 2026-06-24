@@ -14,6 +14,7 @@ See the Mulan PSL v2 for more details. */
 #include "executor_abstract.h"
 #include "index/ix.h"
 #include "system/sm.h"
+#include "transaction/txn_defs.h"
 
 class InsertExecutor : public AbstractExecutor {
    private:
@@ -62,8 +63,21 @@ class InsertExecutor : public AbstractExecutor {
                 memcpy(key + offset, rec.data + index.cols[i].offset, index.cols[i].len);
                 offset += index.cols[i].len;
             }
-            ih->insert_entry(key, rid_, context_->txn_);
+            auto page_no = ih->insert_entry(key, rid_, context_->txn_);
+            if (page_no == -1) {
+                delete[] key;
+                // 回滚已插入的数据记录
+                fh_->delete_record(rid_, context_);
+                throw InternalError("Duplicate key violates unique index");
+            }
+            delete[] key;
         }
+
+        // 记录写操作，用于事务回滚
+        if (context_ != nullptr && context_->txn_ != nullptr) {
+            context_->txn_->append_write_record(new WriteRecord(WType::INSERT_TUPLE, tab_name_, rid_));
+        }
+
         return nullptr;
     }
     Rid &rid() override { return rid_; }

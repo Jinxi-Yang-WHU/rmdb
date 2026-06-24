@@ -12,6 +12,7 @@ See the Mulan PSL v2 for more details. */
 #include <vector>
 #include <string>
 #include <memory>
+#include "common/common.h"
 
 enum JoinType {
     INNER_JOIN, LEFT_JOIN, RIGHT_JOIN, FULL_JOIN
@@ -41,6 +42,12 @@ struct Help : public TreeNode {
 };
 
 struct ShowTables : public TreeNode {
+};
+
+struct ShowIndex : public TreeNode {
+    std::string tab_name;
+
+    ShowIndex(std::string tab_name_) : tab_name(std::move(tab_name_)) {}
 };
 
 struct TxnBegin : public TreeNode {
@@ -151,16 +158,22 @@ struct SetClause : public TreeNode {
     std::shared_ptr<Value> val;
     bool is_expr = false;
     std::shared_ptr<Col> expr_col;
-    int arith_op;  // 存储 '+' 或 '-' 的 ASCII 码
+    char arith_op;
     std::shared_ptr<Value> expr_val;
 
-    // 原有构造函数：常量赋值
     SetClause(std::string col_name_, std::shared_ptr<Value> val_) :
-            col_name(std::move(col_name_)), val(std::move(val_)), is_expr(false) {}
-
-    // 新增构造函数：表达式赋值（如 score = score + 5）
-    SetClause(std::string col_name_, std::shared_ptr<Col> expr_col_, int arith_op_, std::shared_ptr<Value> expr_val_) :
+            col_name(std::move(col_name_)), val(std::move(val_)) {}
+    SetClause(std::string col_name_, std::shared_ptr<Col> expr_col_, char arith_op_, std::shared_ptr<Value> expr_val_) :
             col_name(std::move(col_name_)), is_expr(true), expr_col(std::move(expr_col_)), arith_op(arith_op_), expr_val(std::move(expr_val_)) {}
+};
+
+struct AggregateExpr : public Expr {
+    AggregateType agg_type;
+    std::shared_ptr<Col> col;  // 对于 COUNT(*) 为 nullptr
+    std::string alias;
+
+    AggregateExpr(AggregateType agg_type_, std::shared_ptr<Col> col_, std::string alias_)
+        : agg_type(agg_type_), col(std::move(col_)), alias(std::move(alias_)) {}
 };
 
 struct BinaryExpr : public TreeNode {
@@ -219,23 +232,25 @@ struct JoinExpr : public TreeNode {
 };
 
 struct SelectStmt : public TreeNode {
-    std::vector<std::shared_ptr<Col>> cols;
+    std::vector<std::shared_ptr<Expr>> cols;
     std::vector<std::string> tabs;
     std::vector<std::shared_ptr<BinaryExpr>> conds;
     std::vector<std::shared_ptr<JoinExpr>> jointree;
 
-    
-    bool has_sort;
-    std::shared_ptr<OrderBy> order;
+    bool has_sort = false;
+    std::vector<std::shared_ptr<OrderBy>> orders;
+    bool has_limit = false;
+    int limit = -1;
 
-
-    SelectStmt(std::vector<std::shared_ptr<Col>> cols_,
+    SelectStmt(std::vector<std::shared_ptr<Expr>> cols_,
                std::vector<std::string> tabs_,
                std::vector<std::shared_ptr<BinaryExpr>> conds_,
-               std::shared_ptr<OrderBy> order_) :
+               std::vector<std::shared_ptr<OrderBy>> orders_,
+               int limit_ = -1) :
             cols(std::move(cols_)), tabs(std::move(tabs_)), conds(std::move(conds_)), 
-            order(std::move(order_)) {
-                has_sort = (bool)order;
+            orders(std::move(orders_)), limit(limit_) {
+                has_sort = !orders.empty();
+                has_limit = (limit >= 0);
             }
 };
 
@@ -265,6 +280,8 @@ struct SemValue {
     std::shared_ptr<Col> sv_col;
     std::vector<std::shared_ptr<Col>> sv_cols;
 
+    std::vector<std::shared_ptr<Expr>> sv_exprs;
+
     std::shared_ptr<SetClause> sv_set_clause;
     std::vector<std::shared_ptr<SetClause>> sv_set_clauses;
 
@@ -272,6 +289,7 @@ struct SemValue {
     std::vector<std::shared_ptr<BinaryExpr>> sv_conds;
 
     std::shared_ptr<OrderBy> sv_orderby;
+    std::vector<std::shared_ptr<OrderBy>> sv_orderbys;
 };
 
 extern std::shared_ptr<ast::TreeNode> parse_tree;

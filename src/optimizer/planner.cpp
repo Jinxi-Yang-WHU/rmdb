@@ -12,6 +12,7 @@ See the Mulan PSL v2 for more details. */
 
 #include <memory>
 
+#include "execution/executor_aggregate.h"
 #include "execution/executor_delete.h"
 #include "execution/executor_index_scan.h"
 #include "execution/executor_insert.h"
@@ -133,6 +134,11 @@ std::shared_ptr<Plan> Planner::physical_optimization(std::shared_ptr<Query> quer
 
     // 处理orderby
     plan = generate_sort_plan(query, std::move(plan)); 
+
+    // 处理聚合函数
+    if (query->has_aggregate) {
+        plan = std::make_shared<AggregatePlan>(T_Aggregate, std::move(plan), query->aggregates[0]);
+    }
 
     return plan;
 }
@@ -258,17 +264,23 @@ std::shared_ptr<Plan> Planner::generate_sort_plan(std::shared_ptr<Query> query, 
     std::vector<std::string> tables = query->tables;
     std::vector<ColMeta> all_cols;
     for (auto &sel_tab_name : tables) {
-        // 这里db_不能写成get_db(), 注意要传指针
         const auto &sel_tab_cols = sm_manager_->db_.get_table(sel_tab_name).cols;
         all_cols.insert(all_cols.end(), sel_tab_cols.begin(), sel_tab_cols.end());
     }
-    TabCol sel_col;
-    for (auto &col : all_cols) {
-        if(col.name.compare(x->order->cols->col_name) == 0 )
-        sel_col = {.tab_name = col.tab_name, .col_name = col.name};
+
+    std::vector<std::pair<TabCol, bool>> sort_keys;
+    for (auto &order : x->orders) {
+        TabCol sel_col;
+        for (auto &col : all_cols) {
+            if(col.name.compare(order->cols->col_name) == 0) {
+                sel_col = {.tab_name = col.tab_name, .col_name = col.name};
+                break;
+            }
+        }
+        bool is_desc = (order->orderby_dir == ast::OrderBy_DESC);
+        sort_keys.emplace_back(sel_col, is_desc);
     }
-    return std::make_shared<SortPlan>(T_Sort, std::move(plan), sel_col, 
-                                    x->order->orderby_dir == ast::OrderBy_DESC);
+    return std::make_shared<SortPlan>(T_Sort, std::move(plan), sort_keys, x->has_limit ? x->limit : -1);
 }
 
 

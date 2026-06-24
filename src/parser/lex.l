@@ -12,7 +12,7 @@
 
 %{
 #include "ast.h"
-#include "yacc.tab.hpp"
+#include "yacc.tab.h"
 #include "errors.h"
 #include <iostream>
 #include <memory>
@@ -92,6 +92,13 @@ single_op ";"|"("|")"|","|"*"|"="|">"|"<"|"."|"+"|"-"
 "ORDER" { return ORDER; }
 "BY" {  return BY;  }
 "ASC" { return ASC; }
+"DESC" { return DESC; }
+"LIMIT" { return LIMIT; }
+"SUM" { return SUM; }
+"MAX" { return MAX; }
+"MIN" { return MIN; }
+"COUNT" { return COUNT; }
+"AS" { return AS; }
     /* operators */
 ">=" { return GEQ; }
 "<=" { return LEQ; }

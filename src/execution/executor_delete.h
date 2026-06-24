@@ -14,6 +14,7 @@ See the Mulan PSL v2 for more details. */
 #include "executor_abstract.h"
 #include "index/ix.h"
 #include "system/sm.h"
+#include "transaction/txn_defs.h"
 
 /*
 DeleteExecutor 不遍历、不过滤、不返回记录。它只接收一个已经收集好的 rids_ 列表，在 Next() 中一次性完成全部删除工作。
@@ -43,10 +44,19 @@ class DeleteExecutor : public AbstractExecutor {
         // 遍历所有待删除的记录位置
         for (auto &rid : rids_) {
             
+            // 读取旧记录，用于构造索引 key 和事务回滚
+            auto rec = fh_->get_record(rid, context_);
+
+            // 记录写操作，用于事务回滚
+            if (context_ != nullptr && context_->txn_ != nullptr) {
+                RmRecord old_record(rec->size);
+                memcpy(old_record.data, rec->data, rec->size);
+                context_->txn_->append_write_record(
+                    new WriteRecord(WType::DELETE_TUPLE, tab_name_, rid, old_record));
+            }
+
             // 1. 如果表上有索引，必须先删索引项
             if (!tab_.indexes.empty()) {
-                // 读取旧记录，用于构造索引 key
-                auto rec = fh_->get_record(rid, context_);
                 
                 // 遍历该表上的所有索引
                 for (auto &index : tab_.indexes) {

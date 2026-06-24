@@ -18,11 +18,13 @@ See the Mulan PSL v2 for more details. */
 #include "parser/ast.h"
 
 #include "parser/parser.h"
+#include "common/common.h"
 
 typedef enum PlanTag{
     T_Invalid = 1,
     T_Help,
     T_ShowTable,
+    T_ShowIndex,
     T_DescTable,
     T_CreateTable,
     T_DropTable,
@@ -40,6 +42,7 @@ typedef enum PlanTag{
     T_IndexScan,
     T_NestLoop,
     T_Sort,
+    T_Aggregate,
     T_Projection
 } PlanTag;
 
@@ -117,18 +120,31 @@ class ProjectionPlan : public Plan
 class SortPlan : public Plan
 {
     public:
-        SortPlan(PlanTag tag, std::shared_ptr<Plan> subplan, TabCol sel_col, bool is_desc)
+        SortPlan(PlanTag tag, std::shared_ptr<Plan> subplan, std::vector<std::pair<TabCol, bool>> sort_keys, int limit = -1)
         {
             Plan::tag = tag;
             subplan_ = std::move(subplan);
-            sel_col_ = sel_col;
-            is_desc_ = is_desc;
+            sort_keys_ = std::move(sort_keys);
+            limit_ = limit;
         }
         ~SortPlan(){}
         std::shared_ptr<Plan> subplan_;
-        TabCol sel_col_;
-        bool is_desc_;
-        
+        std::vector<std::pair<TabCol, bool>> sort_keys_;
+        int limit_ = -1;
+};
+
+class AggregatePlan : public Plan
+{
+    public:
+        AggregatePlan(PlanTag tag, std::shared_ptr<Plan> subplan, AggregateInfo agg_info)
+        {
+            Plan::tag = tag;
+            subplan_ = std::move(subplan);
+            agg_info_ = agg_info;
+        }
+        ~AggregatePlan(){}
+        std::shared_ptr<Plan> subplan_;
+        AggregateInfo agg_info_;
 };
 
 // dml语句，包括insert; delete; update; select语句　

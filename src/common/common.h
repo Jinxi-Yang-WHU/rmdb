@@ -188,6 +188,44 @@ struct Value {
 enum CompOp { OP_EQ, OP_NE, OP_LT, OP_GT, OP_LE, OP_GE };
 enum ArithOp { ARITH_ADD, ARITH_SUB, ARITH_MUL, ARITH_DIV };
 
+enum AggregateType {
+    AGG_SUM,
+    AGG_MAX,
+    AGG_MIN,
+    AGG_COUNT,
+    AGG_COUNT_STAR
+};
+
+inline std::string get_default_agg_name(AggregateType type) {
+    switch (type) {
+        case AGG_SUM: return "sum";
+        case AGG_MAX: return "max";
+        case AGG_MIN: return "min";
+        case AGG_COUNT:
+        case AGG_COUNT_STAR: return "count";
+    }
+    return "";
+}
+
+struct AggregateInfo {
+    AggregateType agg_type;
+    TabCol col;        // 输入列，COUNT_STAR 时为空
+    std::string alias; // 输出列名
+    ColType out_type;  // 输出列类型
+};
+
+// Resolved SET clause used by analyzer/executor (after semantic analysis)
+struct SetClause {
+    TabCol lhs;              // target column
+    Value rhs;               // constant right-hand side value
+    bool is_rhs_expr = false; // true if rhs is col op const expression
+    TabCol rhs_col;          // right-hand side column in expression
+    ArithOp arith_op;        // ARITH_ADD or ARITH_SUB
+    Value rhs_expr_val;      // constant part of expression
+
+    SetClause() = default;
+};
+
 struct Condition {
     TabCol lhs_col;   // left-hand side column
     CompOp op;        // comparison operator
@@ -196,11 +234,3 @@ struct Condition {
     Value rhs_val;    // right-hand side value
 };
 
-struct SetClause {
-    TabCol lhs;
-    Value rhs;
-    bool is_rhs_expr = false;   // 新增：右侧是否为表达式
-    TabCol rhs_col;             // 新增：表达式引用的列（如 score）
-    ArithOp arith_op;           // 新增：算术运算符
-    Value rhs_expr_val;         // 新增：表达式中的常量值（如 5）
-};

@@ -14,6 +14,7 @@ See the Mulan PSL v2 for more details. */
 #include "executor_abstract.h"
 #include "index/ix.h"
 #include "system/sm.h"
+#include "transaction/txn_defs.h"
 
 //只接收 rids_ 列表和 set_clauses_，在 Next() 中一次性完成全部更新。
 class UpdateExecutor : public AbstractExecutor {
@@ -42,6 +43,17 @@ class UpdateExecutor : public AbstractExecutor {
     std::unique_ptr<RmRecord> Next() override {
         for (auto &rid : rids_) {
             auto rec = fh_->get_record(rid, context_);
+            // 保存旧记录副本，用于索引更新和事务回滚
+            std::vector<char> old_rec(rec->size);
+            memcpy(old_rec.data(), rec->data, rec->size);
+
+            if (context_ != nullptr && context_->txn_ != nullptr) {
+                RmRecord old_record(rec->size);
+                memcpy(old_record.data, rec->data, rec->size);
+                context_->txn_->append_write_record(
+                    new WriteRecord(WType::UPDATE_TUPLE, tab_name_, rid, old_record));
+            }
+
             char *data = rec->data;
 
             for (auto &set_clause : set_clauses_) {
@@ -87,10 +99,9 @@ class UpdateExecutor : public AbstractExecutor {
                 std::vector<char> old_key(index.col_tot_len);
                 int offset = 0;
                 for (size_t i = 0; i < (size_t)index.col_num; ++i) {
-                    memcpy(old_key.data() + offset, rec->data + index.cols[i].offset, index.cols[i].len);
+                    memcpy(old_key.data() + offset, old_rec.data() + index.cols[i].offset, index.cols[i].len);
                     offset += index.cols[i].len;
                 }
-                ih->delete_entry(old_key.data(), context_->txn_);
 
                 std::vector<char> new_key(index.col_tot_len);
                 offset = 0;
@@ -98,7 +109,18 @@ class UpdateExecutor : public AbstractExecutor {
                     memcpy(new_key.data() + offset, data + index.cols[i].offset, index.cols[i].len);
                     offset += index.cols[i].len;
                 }
-                ih->insert_entry(new_key.data(), rid, context_->txn_);
+
+                if (memcmp(old_key.data(), new_key.data(), index.col_tot_len) == 0) {
+                    continue;
+                }
+
+                ih->delete_entry(old_key.data(), context_->txn_);
+                auto page_no = ih->insert_entry(new_key.data(), rid, context_->txn_);
+                if (page_no == -1) {
+                    // 恢复旧索引项
+                    ih->insert_entry(old_key.data(), rid, context_->txn_);
+                    throw InternalError("Duplicate key violates unique index");
+                }
             }
 
             fh_->update_record(rid, data, context_);

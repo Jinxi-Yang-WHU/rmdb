@@ -52,6 +52,12 @@ class RmFileHandle {
     RmFileHdr file_hdr_;    // 文件头，维护当前表文件的元数据
 
    public:
+    int get_fd() const { return fd_; }
+
+    void flush_file_hdr() {
+        disk_manager_->write_page(fd_, RM_FILE_HDR_PAGE, (char *)&file_hdr_, sizeof(file_hdr_));
+    }
+
     RmFileHandle(DiskManager *disk_manager, BufferPoolManager *buffer_pool_manager, int fd)
         : disk_manager_(disk_manager), buffer_pool_manager_(buffer_pool_manager), fd_(fd) {
         // 注意：这里从磁盘中读出文件描述符为fd的文件的file_hdr，读到内存中

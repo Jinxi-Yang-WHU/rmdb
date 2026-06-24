@@ -22,7 +22,8 @@ using namespace ast;
 
 // keywords
 %token SHOW TABLES CREATE TABLE DROP DESC INSERT INTO VALUES DELETE FROM ASC ORDER BY
-WHERE UPDATE SET SELECT INT CHAR FLOAT INDEX AND JOIN EXIT HELP TXN_BEGIN TXN_COMMIT TXN_ABORT TXN_ROLLBACK ORDER_BY
+WHERE UPDATE SET SELECT INT CHAR FLOAT INDEX AND JOIN EXIT HELP TXN_BEGIN TXN_COMMIT TXN_ABORT TXN_ROLLBACK ORDER_BY LIMIT
+SUM MAX MIN COUNT AS
 // non-keywords
 %token LEQ NEQ GEQ T_EOF
 
@@ -46,13 +47,16 @@ WHERE UPDATE SET SELECT INT CHAR FLOAT INDEX AND JOIN EXIT HELP TXN_BEGIN TXN_CO
 %type <sv_str> tbName colName
 %type <sv_strs> tableList colNameList
 %type <sv_col> col
-%type <sv_cols> colList selector
+%type <sv_cols> colList
+%type <sv_expr> selector_item aggregate_expr
+%type <sv_exprs> selector
 %type <sv_set_clause> setClause
 %type <sv_set_clauses> setClauses
 %type <sv_cond> condition
 %type <sv_conds> whereClause optWhereClause
-%type <sv_orderby>  order_clause opt_order_clause
+%type <sv_orderbys> order_clause opt_order_clause
 %type <sv_orderby_dir> opt_asc_desc
+%type <sv_int> opt_limit
 
 %%
 start:
@@ -109,6 +113,10 @@ dbStmt:
     {
         $$ = std::make_shared<ShowTables>();
     }
+    |   SHOW INDEX FROM tbName
+    {
+        $$ = std::make_shared<ShowIndex>($4);
+    }
     ;
 
 ddl:
@@ -147,9 +155,9 @@ dml:
     {
         $$ = std::make_shared<UpdateStmt>($2, $4, $5);
     }
-    |   SELECT selector FROM tableList optWhereClause opt_order_clause
+    |   SELECT selector FROM tableList optWhereClause opt_order_clause opt_limit
     {
-        $$ = std::make_shared<SelectStmt>($2, $4, $5, $6);
+        $$ = std::make_shared<SelectStmt>($2, $4, $5, $6, $7);
     }
     ;
 
@@ -208,7 +216,7 @@ type:
 valueList:
         value
     {
-        $$ = std::vector<std::shared_ptr<Value>>{$1};
+        $$ = std::vector<std::shared_ptr<ast::Value>>{$1};
     }
     |   valueList ',' value
     {
@@ -324,7 +332,7 @@ expr:
 setClauses:
         setClause
     {
-        $$ = std::vector<std::shared_ptr<SetClause>>{$1};
+        $$ = std::vector<std::shared_ptr<ast::SetClause>>{$1};
     }
     |   setClauses ',' setClause
     {
@@ -335,15 +343,15 @@ setClauses:
 setClause:
         colName '=' value
     {
-        $$ = std::make_shared<SetClause>($1, $3);
+        $$ = std::make_shared<ast::SetClause>($1, $3);
     }
     |   colName '=' colName '+' value
     {
-        $$ = std::make_shared<SetClause>($1, std::make_shared<Col>("", $3), '+', $5);
+        $$ = std::make_shared<ast::SetClause>($1, std::make_shared<ast::Col>("", $3), '+', $5);
     }
     |   colName '=' colName '-' value
     {
-        $$ = std::make_shared<SetClause>($1, std::make_shared<Col>("", $3), '-', $5);
+        $$ = std::make_shared<ast::SetClause>($1, std::make_shared<ast::Col>("", $3), '-', $5);
     }
     ;
 
@@ -352,7 +360,52 @@ selector:
     {
         $$ = {};
     }
-    |   colList
+    |   selector_item
+    {
+        $$ = std::vector<std::shared_ptr<Expr>>{$1};
+    }
+    |   selector ',' selector_item
+    {
+        $$ = std::move($1);
+        $$.push_back($3);
+    }
+    ;
+
+selector_item:
+        col
+    {
+        $$ = std::static_pointer_cast<Expr>($1);
+    }
+    |   aggregate_expr
+    ;
+
+aggregate_expr:
+        SUM '(' col ')'
+    {
+        $$ = std::make_shared<AggregateExpr>(AggregateType::AGG_SUM, $3, "");
+    }
+    |   MAX '(' col ')'
+    {
+        $$ = std::make_shared<AggregateExpr>(AggregateType::AGG_MAX, $3, "");
+    }
+    |   MIN '(' col ')'
+    {
+        $$ = std::make_shared<AggregateExpr>(AggregateType::AGG_MIN, $3, "");
+    }
+    |   COUNT '(' '*' ')'
+    {
+        $$ = std::make_shared<AggregateExpr>(AggregateType::AGG_COUNT_STAR, nullptr, "");
+    }
+    |   COUNT '(' col ')'
+    {
+        $$ = std::make_shared<AggregateExpr>(AggregateType::AGG_COUNT, $3, "");
+    }
+    |   aggregate_expr AS colName
+    {
+        auto agg = std::dynamic_pointer_cast<AggregateExpr>($1);
+        agg->alias = $3;
+        $$ = agg;
+    }
     ;
 
 tableList:
@@ -371,18 +424,30 @@ tableList:
     ;
 
 opt_order_clause:
-    ORDER BY order_clause      
-    { 
-        $$ = $3; 
+    ORDER BY order_clause
+    {
+        $$ = $3;
     }
-    |   /* epsilon */ { /* ignore*/ }
+    |   /* epsilon */ { $$ = std::vector<std::shared_ptr<OrderBy>>(); }
     ;
 
 order_clause:
-      col  opt_asc_desc 
-    { 
-        $$ = std::make_shared<OrderBy>($1, $2);
+      col  opt_asc_desc
+    {
+        $$ = std::vector<std::shared_ptr<OrderBy>>{std::make_shared<OrderBy>($1, $2)};
     }
+    |   order_clause ',' col opt_asc_desc
+    {
+        $$.push_back(std::make_shared<OrderBy>($3, $4));
+    }
+    ;
+
+opt_limit:
+    LIMIT VALUE_INT
+    {
+        $$ = $2;
+    }
+    |   /* epsilon */ { $$ = -1; }
     ;   
 
 opt_asc_desc:

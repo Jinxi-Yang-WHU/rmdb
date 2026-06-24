@@ -170,6 +170,16 @@ class IxIndexHandle {
     std::mutex root_latch_;
 
    public:
+    int get_fd() const { return fd_; }
+
+    void flush_file_hdr() {
+        char* buf = new char[PAGE_SIZE];
+        memset(buf, 0, PAGE_SIZE);
+        file_hdr_->serialize(buf);
+        disk_manager_->write_page(fd_, IX_FILE_HDR_PAGE, buf, PAGE_SIZE);
+        delete[] buf;
+    }
+
     IxIndexHandle(DiskManager *disk_manager, BufferPoolManager *buffer_pool_manager, int fd);
 
     // for search

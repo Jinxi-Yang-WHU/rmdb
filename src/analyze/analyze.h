@@ -34,6 +34,9 @@ class Query{
     std::vector<SetClause> set_clauses;
     //insert 的values值
     std::vector<Value> values;
+    // 聚合函数信息（仅 select 语句使用）
+    std::vector<AggregateInfo> aggregates;
+    bool has_aggregate = false;
 
     Query(){}
 

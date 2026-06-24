@@ -56,6 +56,7 @@ struct IndexMeta {
 
     friend std::istream &operator>>(std::istream &is, IndexMeta &index) {
         is >> index.tab_name >> index.col_tot_len >> index.col_num;
+        if (!is) return is;
         for(int i = 0; i < index.col_num; ++i) {
             ColMeta col;
             is >> col;
@@ -137,14 +138,17 @@ struct TabMeta {
     }
 
     friend std::istream &operator>>(std::istream &is, TabMeta &tab) {
-        size_t n;
+        size_t n = 0;
         is >> tab.name >> n;
+        if (!is) return is;
         for (size_t i = 0; i < n; i++) {
             ColMeta col;
             is >> col;
             tab.cols.push_back(col);
         }
+        n = 0;
         is >> n;
+        if (!is) return is;
         for(size_t i = 0; i < n; ++i) {
             IndexMeta index;
             is >> index;
@@ -193,8 +197,9 @@ class DbMeta {
     }
 
     friend std::istream &operator>>(std::istream &is, DbMeta &db_meta) {
-        size_t n;
+        size_t n = 0;
         is >> db_meta.name_ >> n;
+        if (!is) return is;
         for (size_t i = 0; i < n; i++) {
             TabMeta tab;
             is >> tab;
